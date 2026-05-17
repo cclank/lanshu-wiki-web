@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, type MouseEvent } from "react";
 import { List } from "lucide-react";
 
 interface TocItem {
@@ -48,6 +48,7 @@ export default function TableOfContents({ content }: TableOfContentsProps) {
   const headings = useMemo(() => extractHeadings(content), [content]);
 
   useEffect(() => {
+    const scrollRoot = document.getElementById("wiki-content-area");
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -56,7 +57,7 @@ export default function TableOfContents({ content }: TableOfContentsProps) {
           }
         }
       },
-      { rootMargin: "-80px 0px -70% 0px" }
+      { root: scrollRoot, rootMargin: "-80px 0px -70% 0px" }
     );
 
     const elements = headings
@@ -66,6 +67,21 @@ export default function TableOfContents({ content }: TableOfContentsProps) {
     elements.forEach((el) => observer.observe(el!));
     return () => observer.disconnect();
   }, [headings]);
+
+  function handleHeadingClick(event: MouseEvent<HTMLAnchorElement>, id: string) {
+    const target = document.getElementById(id);
+    const scrollRoot = document.getElementById("wiki-content-area");
+    if (!target || !scrollRoot) return;
+
+    event.preventDefault();
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    scrollRoot.scrollTo({
+      top: scrollRoot.scrollTop + targetRect.top - rootRect.top - 24,
+      behavior: "auto",
+    });
+    setActiveId(id);
+  }
 
   if (headings.length < 2) return null;
 
@@ -84,6 +100,7 @@ export default function TableOfContents({ content }: TableOfContentsProps) {
               <a
                 key={heading.id}
                 href={`#${heading.id}`}
+                onClick={(event) => handleHeadingClick(event, heading.id)}
                 style={{ paddingLeft: `${indent + 8}px` }}
                 className={`block py-1 text-xs leading-relaxed border-l-2 transition-colors ${
                   isActive

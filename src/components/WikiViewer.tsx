@@ -49,31 +49,34 @@ interface WikiViewerProps {
 }
 
 export default function WikiViewer({ data, loading, error, label, owner, repo }: WikiViewerProps) {
+  const [initialHash] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.hash.replace(/^#/, "")
+  );
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("read");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [readingProgress, setReadingProgress] = useState(0);
 
-  // Set initial active slug when data loads (respect URL hash)
-  useEffect(() => {
-    if (!data) return;
-    const hash = window.location.hash.replace(/^#/, "");
-    if (hash && data.pages.some((p) => p.slug === hash)) {
-      setActiveSlug(hash);
-      return;
+  const initialSlug = useMemo(() => {
+    if (!data) return null;
+    if (initialHash && data.pages.some((p) => p.slug === initialHash)) {
+      return initialHash;
     }
     const readmePage = data.pages.find(
       (p) =>
         p.path.toLowerCase() === "readme.md" ||
         p.path.toLowerCase() === "index.md"
     );
-    if (readmePage) {
-      setActiveSlug(readmePage.slug);
-    } else if (data.pages.length > 0) {
-      setActiveSlug(data.pages[0].slug);
-    }
-  }, [data]);
+    return readmePage?.slug ?? data.pages[0]?.slug ?? null;
+  }, [data, initialHash]);
+
+  const resolvedActiveSlug = useMemo(() => {
+    if (!data || !activeSlug) return initialSlug;
+    return data.pages.some((p) => p.slug === activeSlug)
+      ? activeSlug
+      : initialSlug;
+  }, [activeSlug, data, initialSlug]);
 
   // Reading progress
   useEffect(() => {
@@ -81,13 +84,17 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
       const contentEl = document.getElementById("wiki-content-area");
       if (!contentEl) return;
       const { scrollTop, scrollHeight, clientHeight } = contentEl;
-      const progress = scrollTop / (scrollHeight - clientHeight);
-      setReadingProgress(Math.min(Math.max(progress, 0), 1));
+      const maxScrollTop = scrollHeight - clientHeight;
+      const nextProgress =
+        maxScrollTop > 0 ? Math.min(Math.max(scrollTop / maxScrollTop, 0), 1) : 0;
+      setReadingProgress((current) =>
+        Math.abs(current - nextProgress) < 0.001 ? current : nextProgress
+      );
     }
     const el = document.getElementById("wiki-content-area");
     el?.addEventListener("scroll", handleScroll);
     return () => el?.removeEventListener("scroll", handleScroll);
-  }, [activeSlug]);
+  }, [resolvedActiveSlug]);
 
   // Keyboard shortcut for search
   useEffect(() => {
@@ -102,8 +109,8 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
   }, []);
 
   const activePage = useMemo(
-    () => data?.pages.find((p) => p.slug === activeSlug) ?? null,
-    [data, activeSlug]
+    () => data?.pages.find((p) => p.slug === resolvedActiveSlug) ?? null,
+    [data, resolvedActiveSlug]
   );
 
   const slugByName = useMemo(() => {
@@ -111,7 +118,11 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
     if (data) {
       for (const p of data.pages) {
         const name = p.path.split("/").pop()!.replace(/\.md$/, "").toLowerCase();
+        const path = p.path.toLowerCase();
+        const pathWithoutExtension = path.replace(/\.md$/, "");
         map.set(name, p.slug);
+        map.set(path, p.slug);
+        map.set(pathWithoutExtension, p.slug);
       }
     }
     return map;
@@ -119,10 +130,10 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
 
   // Backlinks: pages that link TO the active page
   const backlinks = useMemo(() => {
-    if (!data || !activeSlug) return [];
+    if (!data || !resolvedActiveSlug) return [];
     const result: { slug: string; title: string }[] = [];
     for (const link of data.graph.links) {
-      if (link.target === activeSlug && link.source !== activeSlug) {
+      if (link.target === resolvedActiveSlug && link.source !== resolvedActiveSlug) {
         const page = data.pages.find((p) => p.slug === link.source);
         if (page) result.push({ slug: page.slug, title: page.title });
       }
@@ -134,13 +145,16 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
       seen.add(b.slug);
       return true;
     });
-  }, [data, activeSlug]);
+  }, [data, resolvedActiveSlug]);
 
   const handleNavigate = useCallback((slug: string) => {
     setActiveSlug(slug);
     setViewMode("read");
     setSidebarOpen(false);
-    document.getElementById("wiki-content-area")?.scrollTo(0, 0);
+    setReadingProgress(0);
+    document
+      .getElementById("wiki-content-area")
+      ?.scrollTo({ top: 0, behavior: "auto" });
     history.replaceState(null, "", `#${slug}`);
   }, []);
 
@@ -203,6 +217,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
       <header className="shrink-0 h-14 bg-bg-secondary/80 backdrop-blur-md border-b border-border-primary flex items-center px-4 gap-3 z-20">
         {showSidebar && (
           <button
+            type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-2 rounded-lg hover:bg-bg-hover text-text-secondary transition-colors cursor-pointer"
           >
@@ -229,6 +244,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
           <button
+            type="button"
             onClick={() => setSearchOpen(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-lg text-sm text-text-tertiary hover:text-text-secondary hover:border-border-secondary transition-colors cursor-pointer"
           >
@@ -243,6 +259,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
             {VIEW_MODES.map((mode) => (
               <button
                 key={mode.key}
+                type="button"
                 onClick={() => setViewMode(mode.key)}
                 className={`px-2.5 py-1.5 text-sm flex items-center gap-1.5 transition-colors cursor-pointer ${
                   viewMode === mode.key
@@ -275,7 +292,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
           >
             <Sidebar
               categories={data.categories}
-              activeSlug={activeSlug}
+              activeSlug={resolvedActiveSlug}
               onSelect={viewMode === "read" ? handleNavigate : handleGraphSelect}
             />
           </div>
@@ -285,7 +302,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
           <div className="flex flex-1 overflow-hidden">
             <div
               id="wiki-content-area"
-              className="flex-1 overflow-y-auto px-6 sm:px-10 py-8 scroll-smooth"
+              className="flex-1 overflow-y-auto px-6 sm:px-10 py-8"
             >
               {activePage ? (
                 <div className="max-w-3xl mx-auto">
@@ -318,7 +335,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
             <CosmosGraph
               nodes={data.graph.nodes}
               links={data.graph.links}
-              activeSlug={activeSlug}
+              activeSlug={resolvedActiveSlug}
               onSelect={handleNavigate}
             />
           </div>
@@ -330,7 +347,7 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
               nodes={data.graph.nodes}
               links={data.graph.links}
               pages={data.pages}
-              activeSlug={activeSlug}
+              activeSlug={resolvedActiveSlug}
               onSelect={handleGraphSelect}
               onNavigate={handleNavigate}
             />
@@ -356,12 +373,13 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
         )}
       </div>
 
-      <SearchDialog
-        pages={data.pages}
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelect={handleNavigate}
-      />
+      {searchOpen && (
+        <SearchDialog
+          pages={data.pages}
+          onClose={() => setSearchOpen(false)}
+          onSelect={handleNavigate}
+        />
+      )}
     </div>
   );
 }

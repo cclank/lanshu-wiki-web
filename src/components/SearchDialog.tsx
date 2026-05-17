@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  type ChangeEvent,
+} from "react";
 import { Search, X, FileText, ArrowRight } from "lucide-react";
 import type { WikiPage } from "@/lib/github";
 
 interface SearchDialogProps {
   pages: WikiPage[];
-  isOpen: boolean;
   onClose: () => void;
   onSelect: (slug: string) => void;
 }
@@ -19,13 +25,17 @@ interface SearchResult {
 
 export default function SearchDialog({
   pages,
-  isOpen,
   onClose,
   onSelect,
 }: SearchDialogProps) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const handleQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setQuery(event.target.value);
+    setSelectedIndex(0);
+  }, []);
 
   const results = useMemo<SearchResult[]>(() => {
     if (!query.trim()) return [];
@@ -70,29 +80,21 @@ export default function SearchDialog({
   }, [query, pages]);
 
   useEffect(() => {
-    if (isOpen) {
-      setQuery("");
-      setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        if (isOpen) onClose();
-        // Parent handles opening
+        onClose();
+        return;
       }
-      if (!isOpen) return;
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, Math.max(results.length - 1, 0)));
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -105,9 +107,7 @@ export default function SearchDialog({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, results, selectedIndex, onSelect]);
-
-  if (!isOpen) return null;
+  }, [onClose, results, selectedIndex, onSelect]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
@@ -126,11 +126,12 @@ export default function SearchDialog({
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={handleQueryChange}
             placeholder="搜索页面标题或内容..."
             className="flex-1 bg-transparent py-4 text-text-primary placeholder:text-text-tertiary outline-none text-base"
           />
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-bg-hover text-text-tertiary transition-colors cursor-pointer"
           >
@@ -150,6 +151,7 @@ export default function SearchDialog({
           {results.map((result, idx) => (
             <button
               key={result.page.slug}
+              type="button"
               onClick={() => {
                 onSelect(result.page.slug);
                 onClose();

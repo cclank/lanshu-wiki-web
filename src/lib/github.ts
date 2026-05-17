@@ -1,3 +1,5 @@
+import matter from "gray-matter";
+
 export interface GitHubFile {
   path: string;
   name: string;
@@ -113,27 +115,24 @@ function parseFrontmatter(content: string): {
   frontmatter: Record<string, unknown>;
   body: string;
 } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, body: content };
-
-  const fmLines = match[1].split("\n");
-  const fm: Record<string, unknown> = {};
-  for (const line of fmLines) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    let value: unknown = line.slice(colonIdx + 1).trim();
-    // Parse arrays
-    if (typeof value === "string" && value.startsWith("[") && value.endsWith("]")) {
-      value = value
-        .slice(1, -1)
-        .split(",")
-        .map((s) => s.trim());
-    }
-    fm[key] = value;
+  try {
+    const parsed = matter(content);
+    return {
+      frontmatter: parsed.data as Record<string, unknown>,
+      body: parsed.content,
+    };
+  } catch {
+    return { frontmatter: {}, body: content };
   }
+}
 
-  return { frontmatter: fm, body: match[2] };
+function normalizeWikiLinkTarget(rawLink: string): string {
+  return rawLink
+    .split("|")[0]
+    .split("#")[0]
+    .trim()
+    .replace(/\.md$/i, "")
+    .toLowerCase();
 }
 
 function extractWikiLinks(content: string): string[] {
@@ -141,7 +140,8 @@ function extractWikiLinks(content: string): string[] {
   const regex = /\[\[([^\]]+)\]\]/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    links.push(match[1].toLowerCase());
+    const target = normalizeWikiLinkTarget(match[1]);
+    if (target) links.push(target);
   }
   return [...new Set(links)];
 }
@@ -216,7 +216,11 @@ export function buildWikiData(
   const slugByName = new Map<string, string>();
   for (const p of pages) {
     const name = p.path.split("/").pop()!.replace(/\.md$/, "").toLowerCase();
+    const path = p.path.toLowerCase();
+    const pathWithoutExtension = path.replace(/\.md$/, "");
     slugByName.set(name, p.slug);
+    slugByName.set(path, p.slug);
+    slugByName.set(pathWithoutExtension, p.slug);
   }
 
   const nodes: GraphNode[] = pages.map((p) => ({

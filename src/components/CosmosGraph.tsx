@@ -61,8 +61,13 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
   const rafRef = useRef(0);
   const dragNodeRef = useRef<SNode | null>(null);
 
-  activeRef.current = activeSlug;
-  hoveredRef.current = hovered;
+  useEffect(() => {
+    activeRef.current = activeSlug;
+  }, [activeSlug]);
+
+  useEffect(() => {
+    hoveredRef.current = hovered;
+  }, [hovered]);
 
   // Continuous draw loop
   const draw = useCallback(() => {
@@ -72,10 +77,8 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const W = canvas.width / dpr;
-    const H = canvas.height / dpr;
     const t = transformRef.current;
-    // Only dim non-neighbors when HOVERING — not when there's just an active selection
+    // Only dim non-neighbors during hover.
     const hl = hoveredRef.current;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -152,7 +155,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
         ctx.fill();
       }
 
-      // Node dot — bright and saturated
+      // Node dot, bright and saturated.
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.fillStyle = dim ? color + "20" : color;
@@ -223,7 +226,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
         h: fs + py * 2,
       };
 
-      // Check overlap with already placed labels (skip for hovered/active — always show)
+      // Check overlap with already placed labels.
       const forceShow = isHover || isActive;
       if (!forceShow) {
         const hasOverlap = placedLabels.some((placed) => rectsOverlap(labelRect, placed));
@@ -267,22 +270,23 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || nodes.length === 0) return;
+    const canvasEl = canvas;
 
-    const container = canvas.parentElement!;
+    const container = canvasEl.parentElement!;
     const dpr = window.devicePixelRatio || 1;
     const W = container.clientWidth;
     const H = container.clientHeight;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
+    canvasEl.width = W * dpr;
+    canvasEl.height = H * dpr;
+    canvasEl.style.width = `${W}px`;
+    canvasEl.style.height = `${H}px`;
 
     const sNodes: SNode[] = nodes.map((n) => ({ ...n }));
     const sLinks: SLink[] = links.map((l) => ({ source: l.source, target: l.target }));
     nodesRef.current = sNodes;
     linksRef.current = sLinks;
 
-    // Aggressive spread physics — adapted to node count
+    // Spread physics adapted to node count.
     const nodeCount = sNodes.length;
     const chargeStrength = nodeCount > 30 ? -500 : -300;
     const linkDist = nodeCount > 30 ? 200 : 140;
@@ -311,7 +315,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
       .scaleExtent([0.1, 6])
       .on("zoom", (e) => { transformRef.current = e.transform; });
 
-    const sel = d3.select(canvas);
+    const sel = d3.select(canvasEl);
     (sel as d3.Selection<HTMLCanvasElement, unknown, null, undefined>).call(
       zoom as unknown as (s: d3.Selection<HTMLCanvasElement, unknown, null, undefined>) => void
     );
@@ -354,26 +358,28 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     }
 
     // Hover
-    canvas.addEventListener("mousemove", (e) => {
+    function handleHoverMove(e: MouseEvent) {
       if (dragNodeRef.current) return;
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvasEl.getBoundingClientRect();
       const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
       setHovered(n?.id ?? null);
-      canvas.style.cursor = n ? "pointer" : "default";
-    });
+      canvasEl.style.cursor = n ? "pointer" : "default";
+    }
+    canvasEl.addEventListener("mousemove", handleHoverMove);
 
     // Click
-    canvas.addEventListener("click", (e) => {
+    function handleClick(e: MouseEvent) {
       if (dragNodeRef.current) return;
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvasEl.getBoundingClientRect();
       const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
       if (n) onSelect(n.id);
-    });
+    }
+    canvasEl.addEventListener("click", handleClick);
 
     // Drag nodes
     let dragStarted = false;
-    canvas.addEventListener("mousedown", (e) => {
-      const rect = canvas.getBoundingClientRect();
+    function handleMouseDown(e: MouseEvent) {
+      const rect = canvasEl.getBoundingClientRect();
       const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
       if (n) {
         dragNodeRef.current = n;
@@ -383,17 +389,21 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
         sim.alphaTarget(0.08).restart();
         e.stopPropagation();
       }
-    });
-    canvas.addEventListener("mousemove", (e) => {
+    }
+    canvasEl.addEventListener("mousedown", handleMouseDown);
+
+    function handleDragMove(e: MouseEvent) {
       const n = dragNodeRef.current;
       if (!n) return;
       dragStarted = true;
       const t = transformRef.current;
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvasEl.getBoundingClientRect();
       n.fx = (e.clientX - rect.left - t.x) / t.k;
       n.fy = (e.clientY - rect.top - t.y) / t.k;
-      canvas.style.cursor = "grabbing";
-    });
+      canvasEl.style.cursor = "grabbing";
+    }
+    canvasEl.addEventListener("mousemove", handleDragMove);
+
     function endDrag() {
       const n = dragNodeRef.current;
       if (n) {
@@ -403,30 +413,38 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
         dragNodeRef.current = null;
       }
     }
-    canvas.addEventListener("mouseup", (e) => {
+
+    function handleMouseUp(e: MouseEvent) {
       if (dragStarted) {
         e.stopPropagation();
         e.preventDefault();
       }
       endDrag();
-    });
-    canvas.addEventListener("mouseleave", endDrag);
+    }
+    canvasEl.addEventListener("mouseup", handleMouseUp);
+    canvasEl.addEventListener("mouseleave", endDrag);
 
     // Resize
     function onResize() {
-      if (!canvas) return;
+      const nextDpr = window.devicePixelRatio || 1;
       const w = container.clientWidth;
       const h = container.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
+      canvasEl.width = w * nextDpr;
+      canvasEl.height = h * nextDpr;
+      canvasEl.style.width = `${w}px`;
+      canvasEl.style.height = `${h}px`;
     }
     window.addEventListener("resize", onResize);
 
     return () => {
       sim.stop();
       cancelAnimationFrame(rafRef.current);
+      canvasEl.removeEventListener("mousemove", handleHoverMove);
+      canvasEl.removeEventListener("click", handleClick);
+      canvasEl.removeEventListener("mousedown", handleMouseDown);
+      canvasEl.removeEventListener("mousemove", handleDragMove);
+      canvasEl.removeEventListener("mouseup", handleMouseUp);
+      canvasEl.removeEventListener("mouseleave", endDrag);
       window.removeEventListener("resize", onResize);
     };
   }, [nodes, links, onSelect, draw]);

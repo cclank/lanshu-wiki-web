@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -31,11 +31,23 @@ function fallbackCopy(text: string): Promise<void> {
 
 function CodeCopyButton({ preRef }: { preRef: React.RefObject<HTMLDivElement | null> }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
   const handleCopy = useCallback(() => {
     const text = preRef.current?.querySelector("code")?.textContent || "";
     copyToClipboard(text).then(() => {
+      if (!mountedRef.current) return;
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => setCopied(false), 2000);
     });
   }, [preRef]);
   return (
@@ -102,6 +114,43 @@ function resolveRelativeUrl(
   return `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${resolved}`;
 }
 
+function normalizeRelativePath(path: string): string {
+  const parts: string[] = [];
+  for (const segment of path.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      parts.pop();
+    } else {
+      parts.push(segment);
+    }
+  }
+  return parts.join("/");
+}
+
+function resolveMarkdownPath(href: string, pagePath: string): string {
+  const cleanHref = href.split("#")[0];
+  if (cleanHref.startsWith("/")) return normalizeRelativePath(cleanHref.slice(1));
+
+  const pageDir = pagePath.includes("/")
+    ? pagePath.slice(0, pagePath.lastIndexOf("/"))
+    : "";
+  return normalizeRelativePath(pageDir ? `${pageDir}/${cleanHref}` : cleanHref);
+}
+
+function normalizeWikiLinkTarget(rawLink: string): string {
+  return rawLink
+    .split("|")[0]
+    .split("#")[0]
+    .trim()
+    .replace(/\.md$/i, "")
+    .toLowerCase();
+}
+
+function getWikiLinkLabel(rawLink: string): string {
+  const parts = rawLink.split("|");
+  return (parts[1] ?? parts[0]).trim();
+}
+
 // Detect ASCII diagram content (arrows, box-drawing characters)
 const ASCII_DIAGRAM_CHARS = /[┌┐└┘├┤┬┴┼─│▼▲►◄↓↑→←╔╗╚╝║═]/;
 const ARROW_PATTERN = /[→←↓↑▼▲│┌└├┤]/;
@@ -116,7 +165,7 @@ function isAsciiDiagram(code: string): boolean {
   return diagramLines.length / lines.length >= 0.2;
 }
 
-export default function MarkdownContent({
+function MarkdownContent({
   page,
   owner,
   repo,
@@ -125,16 +174,27 @@ export default function MarkdownContent({
   backlinks = [],
 }: MarkdownContentProps) {
   // Replace [[wiki-links]] with clickable links
-  const processedContent = page.content.replace(
-    /\[\[([^\]]+)\]\]/g,
-    (_, linkName: string) => {
-      const slug = slugByName.get(linkName.toLowerCase());
-      if (slug) {
-        return `[${linkName}](#wiki:${slug})`;
-      }
-      return `\`${linkName}\``;
-    }
+  const processedContent = useMemo(
+    () =>
+      page.content.replace(
+        /\[\[([^\]]+)\]\]/g,
+        (_, rawLink: string) => {
+          const target = normalizeWikiLinkTarget(rawLink);
+          const label = getWikiLinkLabel(rawLink);
+          const slug = slugByName.get(target);
+          if (slug) {
+            return `[${label}](#wiki:${slug})`;
+          }
+          return `\`${label}\``;
+        }
+      ),
+    [page.content, slugByName]
   );
+
+  const backlinksClassName =
+    page.links.length > 0
+      ? "mt-4"
+      : "mt-10 pt-6 border-t border-border-primary";
 
   const components: Components = {
     script: () => null,
@@ -143,6 +203,7 @@ export default function MarkdownContent({
         const targetSlug = href.replace("#wiki:", "");
         return (
           <button
+            type="button"
             onClick={() => onNavigate(targetSlug)}
             className="text-text-link hover:brightness-125 transition-colors cursor-pointer bg-transparent p-0 inline"
           >
@@ -150,25 +211,34 @@ export default function MarkdownContent({
           </button>
         );
       }
-      // Internal .md link — navigate within wiki
+      // Internal .md link inside the wiki.
       if (href && !href.startsWith("http") && !href.startsWith("#") && href.endsWith(".md")) {
-        const pageDir = page.path.includes("/")
-          ? page.path.slice(0, page.path.lastIndexOf("/"))
-          : "";
-        let resolved = href;
-        if (href.startsWith("./")) resolved = pageDir ? `${pageDir}/${href.slice(2)}` : href.slice(2);
-        else if (!href.startsWith("/") && !href.startsWith("..")) resolved = pageDir ? `${pageDir}/${href}` : href;
-        const slug = resolved.replace(/\.md$/, "").replace(/\//g, "__");
-        if (slugByName.has(resolved.replace(/\.md$/, "").split("/").pop()!.toLowerCase()) || true) {
+        const resolvedPath = resolveMarkdownPath(href, page.path);
+        const resolvedKey = resolvedPath.replace(/\.md$/i, "").toLowerCase();
+        const basenameKey = resolvedKey.split("/").pop() ?? resolvedKey;
+        const targetSlug =
+          slugByName.get(resolvedPath.toLowerCase()) ??
+          slugByName.get(resolvedKey) ??
+          slugByName.get(basenameKey);
+
+        if (targetSlug) {
           return (
             <button
-              onClick={() => onNavigate(slug)}
+              type="button"
+              onClick={() => onNavigate(targetSlug)}
               className="text-text-link hover:brightness-125 transition-colors cursor-pointer bg-transparent p-0 inline"
             >
               {children}
             </button>
           );
         }
+
+        const resolvedUrl = resolveRelativeUrl(href, page.path, owner, repo);
+        return (
+          <a href={resolvedUrl} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
       }
       // Anchor link
       if (href?.startsWith("#")) {
@@ -294,6 +364,7 @@ export default function MarkdownContent({
               return (
                 <button
                   key={link}
+                  type="button"
                   onClick={() => targetSlug && onNavigate(targetSlug)}
                   disabled={!targetSlug}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
@@ -310,9 +381,9 @@ export default function MarkdownContent({
         </div>
       )}
 
-      {/* Backlinks — pages that link TO this page */}
+      {/* Backlinks from pages that reference this page */}
       {backlinks.length > 0 && (
-        <div className={`mt-${page.links.length > 0 ? "4" : "10"} ${page.links.length > 0 ? "" : "pt-6 border-t border-border-primary"}`}>
+        <div className={backlinksClassName}>
           <h4 className="text-sm font-medium text-text-tertiary mb-3">
             {"被引用 (" + backlinks.length + ")"}
           </h4>
@@ -320,6 +391,7 @@ export default function MarkdownContent({
             {backlinks.map((bl) => (
               <button
                 key={bl.slug}
+                type="button"
                 onClick={() => onNavigate(bl.slug)}
                 className="px-3 py-1.5 rounded-lg text-xs border transition-colors bg-accent-vivid/5 text-accent-vivid border-accent-vivid/20 hover:bg-accent-vivid/10 cursor-pointer"
               >
@@ -332,3 +404,5 @@ export default function MarkdownContent({
     </div>
   );
 }
+
+export default memo(MarkdownContent);

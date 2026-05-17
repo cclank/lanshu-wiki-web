@@ -97,7 +97,7 @@ export default function Home() {
       </div>
 
       <main className="relative z-10 flex flex-col items-center gap-16 px-6 py-24 max-w-md w-full">
-        {/* Brand — quiet confidence */}
+        {/* Brand */}
         <div className="flex flex-col items-center gap-5 text-center">
           <div className="w-10 h-10 rounded-full border border-border-secondary flex items-center justify-center">
             <span className="text-accent-vivid text-lg font-light">W</span>
@@ -110,7 +110,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Input — clean */}
+        {/* Input */}
         <form onSubmit={handleSubmit} className="w-full">
           <div className="flex items-center bg-bg-secondary border border-border-primary rounded-lg overflow-hidden focus-within:border-border-secondary transition-colors">
             <GitBranch className="w-4 h-4 text-text-tertiary ml-4 shrink-0" />
@@ -148,7 +148,7 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Features — understated */}
+        {/* Features */}
         <div className="w-full border-t border-border-primary pt-8">
           <div className="flex justify-between text-center text-[11px] text-text-tertiary">
             <div className="flex flex-col gap-1">

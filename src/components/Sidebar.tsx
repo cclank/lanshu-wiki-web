@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useLayoutEffect, useRef, useState, useMemo } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -41,6 +41,9 @@ export default function Sidebar({
   activeSlug,
   onSelect,
 }: SidebarProps) {
+  const navRef = useRef<HTMLElement>(null);
+  const pendingScrollTopRef = useRef<number | null>(null);
+  const restoreScrollTopRef = useRef<number | null>(null);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(() => {
     return new Set(Object.keys(categories));
   });
@@ -61,7 +64,31 @@ export default function Sidebar({
     return result;
   }, [categories, filter]);
 
+  useLayoutEffect(() => {
+    const restoreScrollTop = restoreScrollTopRef.current;
+    if (restoreScrollTop == null || !navRef.current) return;
+
+    const maxScrollTop =
+      navRef.current.scrollHeight - navRef.current.clientHeight;
+    navRef.current.scrollTop = Math.min(restoreScrollTop, maxScrollTop);
+    restoreScrollTopRef.current = null;
+  }, [expandedCats]);
+
+  function rememberNavScroll() {
+    pendingScrollTopRef.current = navRef.current?.scrollTop ?? 0;
+  }
+
+  function handleCategoryMouseDown(event: React.MouseEvent) {
+    rememberNavScroll();
+    event.preventDefault();
+  }
+
   function toggleCategory(cat: string) {
+    const currentScrollTop =
+      pendingScrollTopRef.current ?? navRef.current?.scrollTop ?? 0;
+    pendingScrollTopRef.current = null;
+    restoreScrollTopRef.current = currentScrollTop;
+
     setExpandedCats((prev) => {
       const next = new Set(prev);
       if (next.has(cat)) next.delete(cat);
@@ -97,7 +124,7 @@ export default function Sidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto sidebar-scroll p-2">
+      <nav ref={navRef} className="flex-1 overflow-y-auto sidebar-scroll p-2">
         {Object.entries(filteredCategories).map(([cat, pages]) => {
           const isExpanded = expandedCats.has(cat);
           const label = CATEGORY_LABELS[cat] || cat;
@@ -106,6 +133,9 @@ export default function Sidebar({
           return (
             <div key={cat} className="mb-1">
               <button
+                type="button"
+                onMouseDown={handleCategoryMouseDown}
+                onPointerDown={rememberNavScroll}
                 onClick={() => toggleCategory(cat)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer"
               >
@@ -127,6 +157,7 @@ export default function Sidebar({
                     const isActive = page.slug === activeSlug;
                     return (
                       <button
+                        type="button"
                         key={page.slug}
                         onClick={() => onSelect(page.slug)}
                         className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm transition-colors text-left cursor-pointer ${

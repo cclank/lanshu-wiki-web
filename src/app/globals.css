@@ -41,12 +41,12 @@
   --text-primary: #1a1714;
   --text-secondary: #3a3530;
   --text-tertiary: #6e675f;
-  --text-link: #c5553d;
+  --text-link: #8b4332;
 
   --border-primary: #ddd7d0;
   --border-secondary: #ccc5bd;
 
-  --accent-vivid: #d0614a;
+  --accent-vivid: #9e4535;
   --accent-gold: #a08560;
   --accent-amber: #a58858;
   --accent-warm: #997a52;
@@ -145,7 +145,7 @@ body {
 
 .wiki-content p {
   margin-bottom: 1rem;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .wiki-content a {
@@ -162,7 +162,7 @@ body {
 
 .wiki-content li {
   margin-bottom: 0.35rem;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 .wiki-content li::marker { color: var(--text-tertiary); }
 
@@ -204,7 +204,7 @@ body {
 
 .wiki-content blockquote p {
   margin-bottom: 0;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-style: italic;
 }
 
@@ -230,7 +230,7 @@ body {
 .wiki-content td {
   padding: 0.5rem 1rem;
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   border-bottom: 1px solid var(--border-primary);
 }
 
@@ -246,7 +246,7 @@ body {
 .wiki-content strong { color: var(--text-primary); font-weight: 600; }
 .wiki-content img { max-width: 100%; border-radius: 8px; }
 
-/* ─── Syntax highlighting — dark mode ─── */
+/* Syntax highlighting: dark mode */
 .hljs { background: transparent !important; color: var(--text-primary) !important; }
 .hljs-keyword { color: #a494b5 !important; }
 .hljs-string { color: #8fa898 !important; }
@@ -260,7 +260,7 @@ body {
 .hljs-meta { color: #89a5a2 !important; }
 .hljs-title { color: #c4b99a !important; }
 
-/* ─── Syntax highlighting — light mode ─── */
+/* Syntax highlighting: light mode */
 [data-theme="light"] .hljs-keyword { color: #7b5e99 !important; }
 [data-theme="light"] .hljs-string { color: #4a7a58 !important; }
 [data-theme="light"] .hljs-comment { color: #7a7470 !important; font-style: italic; }
@@ -313,8 +313,71 @@ body {
   padding: 0 !important;
 }
 
-.mermaid-rendered { display: flex; justify-content: center; padding: 1.5rem; }
-.mermaid-rendered svg { max-width: 100%; height: auto; }
+.mermaid-rendered {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
+  overflow: auto;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, var(--bg-primary));
+}
+
+.mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+  background: transparent !important;
+}
+
+.mermaid-rendered svg text,
+.mermaid-rendered svg .label,
+.mermaid-rendered svg .nodeLabel,
+.mermaid-rendered svg .edgeLabel,
+.mermaid-rendered svg .cluster-label,
+.mermaid-rendered svg .cluster-label span,
+.mermaid-rendered svg .label span,
+.mermaid-rendered svg .nodeLabel span,
+.mermaid-rendered svg foreignObject,
+.mermaid-rendered svg foreignObject div,
+.mermaid-rendered svg foreignObject span,
+.mermaid-rendered svg p {
+  color: var(--text-primary) !important;
+  fill: var(--text-primary) !important;
+}
+
+.mermaid-rendered svg .node rect,
+.mermaid-rendered svg .node polygon,
+.mermaid-rendered svg .node circle,
+.mermaid-rendered svg .node ellipse,
+.mermaid-rendered svg .node path {
+  fill: var(--bg-tertiary) !important;
+  stroke: var(--accent-vivid) !important;
+}
+
+.mermaid-rendered svg .cluster rect {
+  fill: color-mix(in srgb, var(--bg-tertiary) 74%, transparent) !important;
+  stroke: var(--border-secondary) !important;
+}
+
+.mermaid-rendered svg .flowchart-link,
+.mermaid-rendered svg .messageLine0,
+.mermaid-rendered svg .messageLine1,
+.mermaid-rendered svg .transition,
+.mermaid-rendered svg .relationshipLine {
+  stroke: var(--text-tertiary) !important;
+}
+
+.mermaid-rendered svg marker path,
+.mermaid-rendered svg .marker {
+  fill: var(--text-tertiary) !important;
+  stroke: var(--text-tertiary) !important;
+}
+
+.mermaid-rendered svg .edgeLabel,
+.mermaid-rendered svg .edgeLabel p,
+.mermaid-rendered svg .labelBkg {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  fill: var(--bg-secondary) !important;
+}
 
 /* ─── Graph ─── */
 .graph-node { cursor: pointer; transition: opacity 0.2s; }
