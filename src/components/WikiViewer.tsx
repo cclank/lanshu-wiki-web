@@ -48,10 +48,23 @@ interface WikiViewerProps {
   repo: string;
 }
 
+function readSlugFromHash(): string {
+  if (typeof window === "undefined") return "";
+  const rawHash = window.location.hash.replace(/^#/, "");
+  try {
+    return decodeURIComponent(rawHash);
+  } catch {
+    return rawHash;
+  }
+}
+
+function pushSlugToHistory(slug: string) {
+  if (readSlugFromHash() === slug) return;
+  history.pushState(null, "", `#${encodeURIComponent(slug)}`);
+}
+
 export default function WikiViewer({ data, loading, error, label, owner, repo }: WikiViewerProps) {
-  const [initialHash] = useState(() =>
-    typeof window === "undefined" ? "" : window.location.hash.replace(/^#/, "")
-  );
+  const [initialHash] = useState(readSlugFromHash);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("read");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -77,6 +90,32 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
       ? activeSlug
       : initialSlug;
   }, [activeSlug, data, initialSlug]);
+
+  useEffect(() => {
+    if (!data) return;
+
+    function syncSlugFromHistory() {
+      const nextSlug = readSlugFromHash();
+      setActiveSlug(
+        nextSlug && data?.pages.some((p) => p.slug === nextSlug)
+          ? nextSlug
+          : null
+      );
+      setSearchOpen(false);
+      setSidebarOpen(false);
+      setReadingProgress(0);
+      document
+        .getElementById("wiki-content-area")
+        ?.scrollTo({ top: 0, behavior: "auto" });
+    }
+
+    window.addEventListener("popstate", syncSlugFromHistory);
+    window.addEventListener("hashchange", syncSlugFromHistory);
+    return () => {
+      window.removeEventListener("popstate", syncSlugFromHistory);
+      window.removeEventListener("hashchange", syncSlugFromHistory);
+    };
+  }, [data]);
 
   // Reading progress
   useEffect(() => {
@@ -155,12 +194,12 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
     document
       .getElementById("wiki-content-area")
       ?.scrollTo({ top: 0, behavior: "auto" });
-    history.replaceState(null, "", `#${slug}`);
+    pushSlugToHistory(slug);
   }, []);
 
   const handleGraphSelect = useCallback((slug: string) => {
     setActiveSlug(slug);
-    history.replaceState(null, "", `#${slug}`);
+    pushSlugToHistory(slug);
   }, []);
 
   if (loading) {
