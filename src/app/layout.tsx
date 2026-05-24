@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LanSu WikiView | Beautiful Wiki Reader",
+  title: "LanShu WikiView | Beautiful Wiki Reader",
   description:
     "Transform any GitHub wiki repository into a beautiful, visual reading experience with knowledge graphs and enhanced navigation.",
 };

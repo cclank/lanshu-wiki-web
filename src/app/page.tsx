@@ -103,7 +103,7 @@ export default function Home() {
             <span className="text-accent-vivid text-lg font-light">W</span>
           </div>
           <h1 className="text-3xl font-medium tracking-tight text-text-primary">
-            WikiView
+            LanShu WikiView
           </h1>
           <p className="text-sm text-text-tertiary leading-relaxed">
             将 GitHub 仓库或本地目录转化为可视化阅读体验

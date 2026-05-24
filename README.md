@@ -5,7 +5,9 @@
   <img src="https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Tailwind_CSS-4-38bdf8?style=for-the-badge&logo=tailwindcss" alt="Tailwind" />
-  <img src="https://img.shields.io/badge/Deploy-Vercel-black?style=for-the-badge&logo=vercel" alt="Vercel" />
+  <a href="https://lansu-wiki-web.lank.workers.dev/">
+    <img src="https://img.shields.io/badge/Live-Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers" />
+  </a>
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
 </p>
 
@@ -49,11 +51,15 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) and enter any GitHub repo URL.
 
-## Deploy to Vercel
+## Deploy to Cloudflare Workers
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/cclank/lanshu-wiki-web)
+Production URL: https://lansu-wiki-web.lank.workers.dev/
 
-Zero-config deployment. Optionally add `GITHUB_TOKEN` environment variable to increase API rate limits.
+This project uses OpenNext for Cloudflare Workers. Optionally add `GITHUB_TOKEN` as a Worker secret to increase GitHub API rate limits.
+
+```bash
+pnpm deploy
+```
 
 ## Tech Stack
 
@@ -65,7 +71,7 @@ Zero-config deployment. Optionally add `GITHUB_TOKEN` environment variable to in
 | Markdown | react-markdown + remark-gfm + rehype-highlight |
 | Diagrams | Mermaid 11 + D3.js 7 |
 | Icons | Lucide React |
-| Deployment | Vercel |
+| Deployment | Cloudflare Workers |
 
 ## Project Structure
 
