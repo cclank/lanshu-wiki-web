@@ -175,10 +175,8 @@ export default function MindMap({
     const map = new Map<string, Set<string>>();
     for (const n of nodes) map.set(n.id, new Set());
     for (const l of links) {
-      const src = typeof l.source === "string" ? l.source : l.source;
-      const tgt = typeof l.target === "string" ? l.target : l.target;
-      map.get(src)?.add(tgt);
-      map.get(tgt)?.add(src);
+      map.get(l.source)?.add(l.target);
+      map.get(l.target)?.add(l.source);
     }
     return map;
   }, [nodes, links]);

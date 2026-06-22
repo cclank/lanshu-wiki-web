@@ -1,15 +1,6 @@
 import matter from "gray-matter";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-export interface GitHubFile {
-  path: string;
-  name: string;
-  type: "file" | "dir";
-  sha: string;
-  size: number;
-  download_url: string | null;
-}
-
 export interface WikiPage {
   path: string;
   slug: string;
@@ -77,6 +68,7 @@ function getGitHubToken(): string | undefined {
 
 const TAR_NUL = String.fromCharCode(0);
 const EMPTY = new Uint8Array(0);
+const TEXT_DECODER = new TextDecoder();
 
 // Safety caps. The viewer loads every page into a single payload + graph, so a
 // truly massive repo can't be rendered anyway. These bound memory/response size
@@ -95,7 +87,7 @@ function readTarField(buf: Uint8Array, start: number, len: number): string {
   let end = start;
   const max = start + len;
   while (end < max && buf[end] !== 0) end++;
-  return new TextDecoder().decode(buf.subarray(start, end));
+  return TEXT_DECODER.decode(buf.subarray(start, end));
 }
 
 // Streaming tar reader. Walks the 512-byte block structure as bytes arrive,
@@ -108,7 +100,7 @@ async function extractMarkdownFromTarStream(
   stream: ReadableStream<Uint8Array>
 ): Promise<{ path: string; content: string }[]> {
   const files: { path: string; content: string }[] = [];
-  const decoder = new TextDecoder();
+  const decoder = TEXT_DECODER;
   const reader = stream.getReader();
 
   const header = new Uint8Array(512);
