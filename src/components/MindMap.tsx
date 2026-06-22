@@ -185,8 +185,24 @@ export default function MindMap({
 
   // Build tree from active node (with category filtering)
   const treeData = useMemo(() => {
-    const centerSlug = activeSlug || (nodes.length > 0 ? nodes[0].id : null);
+    let centerSlug = activeSlug || (nodes.length > 0 ? nodes[0].id : null);
     if (!centerSlug) return null;
+
+    // If the chosen center has no connections (e.g. README, which typically uses
+    // plain Markdown links rather than [[wiki links]] and so is an orphan in the
+    // graph), fall back to the most-connected node so the mind map isn't empty.
+    if ((adj.get(centerSlug)?.size ?? 0) === 0) {
+      let hub: string | null = null;
+      let best = 0;
+      for (const n of nodes) {
+        const degree = adj.get(n.id)?.size ?? 0;
+        if (degree > best) {
+          best = degree;
+          hub = n.id;
+        }
+      }
+      if (hub) centerSlug = hub;
+    }
 
     const centerNode = nodes.find((n) => n.id === centerSlug);
     if (!centerNode) return null;
