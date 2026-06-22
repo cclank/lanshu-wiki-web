@@ -47,14 +47,17 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   // github.com/owner/repo
   // owner/repo
   const cleaned = url.trim().replace(/\/+$/, "");
+  // Strip a trailing ".git" (clone URLs) and ignore any path/query/hash that
+  // follows owner/repo (e.g. ".../tree/main/docs", "?tab=readme").
+  const stripRepo = (repo: string) => repo.replace(/\.git$/i, "");
 
   const fullMatch = cleaned.match(
-    /(?:https?:\/\/)?github\.com\/([^/]+)\/([^/]+)/
+    /(?:https?:\/\/)?github\.com\/([^/?#]+)\/([^/?#]+)/
   );
-  if (fullMatch) return { owner: fullMatch[1], repo: fullMatch[2] };
+  if (fullMatch) return { owner: fullMatch[1], repo: stripRepo(fullMatch[2]) };
 
-  const shortMatch = cleaned.match(/^([^/]+)\/([^/]+)$/);
-  if (shortMatch) return { owner: shortMatch[1], repo: shortMatch[2] };
+  const shortMatch = cleaned.match(/^([^/?#]+)\/([^/?#]+)$/);
+  if (shortMatch) return { owner: shortMatch[1], repo: stripRepo(shortMatch[2]) };
 
   return null;
 }
@@ -72,17 +75,180 @@ function getGitHubToken(): string | undefined {
   return process.env.GITHUB_TOKEN;
 }
 
-export async function fetchRepoTree(
+const TAR_NUL = String.fromCharCode(0);
+const EMPTY = new Uint8Array(0);
+
+// Safety caps. The viewer loads every page into a single payload + graph, so a
+// truly massive repo can't be rendered anyway. These bound memory/response size
+// and let oversized repos fail with a clear message instead of OOM-ing.
+const MAX_MD_FILES = 5000;
+const MAX_MD_BYTES = 25 * 1024 * 1024; // 25 MB of Markdown
+
+class RepoTooLargeError extends Error {
+  constructor() {
+    super("仓库的 Markdown 内容过大,暂不支持在线渲染(请尝试体量更小的仓库)。");
+    this.name = "RepoTooLargeError";
+  }
+}
+
+function readTarField(buf: Uint8Array, start: number, len: number): string {
+  let end = start;
+  const max = start + len;
+  while (end < max && buf[end] !== 0) end++;
+  return new TextDecoder().decode(buf.subarray(start, end));
+}
+
+// Streaming tar reader. Walks the 512-byte block structure as bytes arrive,
+// keeping ONLY `.md` file bodies and discarding everything else (images, code,
+// etc.) without buffering it — so peak memory stays bounded to the largest
+// single Markdown file regardless of how big the overall archive is. Handles
+// GitHub's git-archive output: PAX (`x`) / GNU (`L`) long-name headers, the
+// global header (`g`), and the leading `repo-HEAD/` directory wrapping entries.
+async function extractMarkdownFromTarStream(
+  stream: ReadableStream<Uint8Array>
+): Promise<{ path: string; content: string }[]> {
+  const files: { path: string; content: string }[] = [];
+  const decoder = new TextDecoder();
+  const reader = stream.getReader();
+
+  const header = new Uint8Array(512);
+  let headerLen = 0;
+  let phase: "header" | "body" = "header";
+  let bodyRemaining = 0; // bytes left in the current entry (incl. padding)
+  let bodySize = 0; // real content size (excl. padding)
+  let bodyKeep = false; // is this an entry we collect (md / x / L)?
+  let bodyType = "";
+  let bodyName = "";
+  let collected: Uint8Array | null = null;
+  let collectedLen = 0;
+  let overrideName: string | null = null; // long name from a preceding x/L
+  let totalBytes = 0;
+  let ended = false;
+
+  const finalizeEntry = () => {
+    const data = collected ? collected.subarray(0, collectedLen) : EMPTY;
+    if (bodyType === "x") {
+      // PAX extended header: pull the real path from "<len> path=<value>\n".
+      const match = decoder.decode(data).match(/\d+ path=(.*)\n/);
+      if (match) overrideName = match[1];
+    } else if (bodyType === "L") {
+      // GNU long name: full path lives in this entry's data block.
+      overrideName = decoder.decode(data).replace(new RegExp(TAR_NUL + "+$"), "");
+    } else if (bodyType === "0" || bodyType === TAR_NUL) {
+      const fullName = overrideName ?? bodyName;
+      overrideName = null;
+      if (fullName.endsWith(".md")) {
+        // Strip the wrapper dir: "repo-HEAD/concepts/x.md" -> "concepts/x.md".
+        const slash = fullName.indexOf("/");
+        const path = slash >= 0 ? fullName.slice(slash + 1) : fullName;
+        if (path) {
+          files.push({ path, content: decoder.decode(data) });
+          totalBytes += bodySize;
+          if (files.length > MAX_MD_FILES || totalBytes > MAX_MD_BYTES) {
+            throw new RepoTooLargeError();
+          }
+        }
+      }
+    } else {
+      // Directory or other type — clears any pending long name.
+      overrideName = null;
+    }
+    collected = null;
+    collectedLen = 0;
+  };
+
+  try {
+    while (!ended) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = value;
+      let pos = 0;
+      while (pos < chunk.length) {
+        if (phase === "header") {
+          const take = Math.min(512 - headerLen, chunk.length - pos);
+          header.set(chunk.subarray(pos, pos + take), headerLen);
+          headerLen += take;
+          pos += take;
+          if (headerLen < 512) break; // need more bytes for a full header
+          headerLen = 0;
+
+          // A zero-filled block marks the end of the archive.
+          let allZero = true;
+          for (let i = 0; i < 512; i++) {
+            if (header[i] !== 0) {
+              allZero = false;
+              break;
+            }
+          }
+          if (allZero) {
+            ended = true;
+            break;
+          }
+
+          bodyName = readTarField(header, 0, 100);
+          bodySize = parseInt(readTarField(header, 124, 12).trim(), 8) || 0;
+          bodyType = String.fromCharCode(header[156]);
+          bodyRemaining = Math.ceil(bodySize / 512) * 512;
+          const candidate = overrideName ?? bodyName;
+          bodyKeep =
+            bodyType === "x" ||
+            bodyType === "L" ||
+            ((bodyType === "0" || bodyType === TAR_NUL) &&
+              candidate.endsWith(".md"));
+          if (bodyKeep) {
+            collected = new Uint8Array(bodySize);
+            collectedLen = 0;
+          }
+          if (bodyRemaining === 0) {
+            finalizeEntry();
+          } else {
+            phase = "body";
+          }
+        } else {
+          const take = Math.min(bodyRemaining, chunk.length - pos);
+          if (bodyKeep && collected) {
+            // Copy content bytes only, never the trailing 512-byte padding.
+            const keepNow = Math.min(take, bodySize - collectedLen);
+            if (keepNow > 0) {
+              collected.set(chunk.subarray(pos, pos + keepNow), collectedLen);
+              collectedLen += keepNow;
+            }
+          }
+          pos += take;
+          bodyRemaining -= take;
+          if (bodyRemaining === 0) {
+            finalizeEntry();
+            phase = "header";
+          }
+        }
+      }
+    }
+  } finally {
+    // Stop the download early on cap-hit / completion.
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore — stream already closed
+    }
+  }
+
+  return files;
+}
+
+export async function fetchRepoMarkdown(
   owner: string,
   repo: string
-): Promise<{ path: string; url: string }[]> {
-  // Use the Git Trees API to get all files at once
+): Promise<{ path: string; content: string }[]> {
   const token = getGitHubToken();
+  // Download the entire repo as ONE gzipped tarball instead of one request per
+  // file. The previous "fetch per file" approach cost N+1 subrequests, which
+  // blew past Cloudflare Workers' per-request subrequest limit (50 on the free
+  // plan) for any sizeable wiki — silently dropping every file past the limit.
+  // One streamed tarball = one subrequest, and never truncates.
   const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
+    `https://codeload.github.com/${owner}/${repo}/tar.gz/HEAD`,
     {
       headers: {
-        Accept: "application/vnd.github.v3+json",
         "User-Agent": "lanshu-wiki-web",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
@@ -90,40 +256,17 @@ export async function fetchRepoTree(
     }
   );
 
-  if (!res.ok) {
-    throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+  if (res.status === 404) {
+    throw new Error(
+      `未找到仓库 ${owner}/${repo}(请确认它存在且为公开仓库)。`
+    );
+  }
+  if (!res.ok || !res.body) {
+    throw new Error(`GitHub archive error: ${res.status} ${res.statusText}`);
   }
 
-  const data = await res.json();
-  return data.tree
-    .filter(
-      (item: { type: string; path: string }) =>
-        item.type === "blob" && item.path.endsWith(".md")
-    )
-    .map((item: { path: string; url: string }) => ({
-      path: item.path,
-      url: item.url,
-    }));
-}
-
-export async function fetchFileContent(
-  owner: string,
-  repo: string,
-  path: string
-): Promise<string> {
-  const res = await fetch(
-    `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${path}`,
-    {
-      headers: { "User-Agent": "lanshu-wiki-web" },
-      next: { revalidate: 300 },
-    }
-  );
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${path}: ${res.status}`);
-  }
-
-  return res.text();
+  const decompressed = res.body.pipeThrough(new DecompressionStream("gzip"));
+  return extractMarkdownFromTarStream(decompressed);
 }
 
 function parseFrontmatter(content: string): {

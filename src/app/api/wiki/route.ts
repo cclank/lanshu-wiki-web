@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { fetchRepoTree, fetchFileContent, buildWikiData } from "@/lib/github";
+import { fetchRepoMarkdown, buildWikiData } from "@/lib/github";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -11,37 +11,24 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch file tree
-    const tree = await fetchRepoTree(owner, repo);
+    // Download the repo as a single tarball and extract every Markdown file
+    // from it. This replaces the old "one fetch per file" loop, which exceeded
+    // Cloudflare Workers' subrequest limit on wikis with many files and then
+    // silently dropped everything past the limit.
+    const files = await fetchRepoMarkdown(owner, repo);
 
-    // Fetch all markdown file contents in parallel (batch of 10)
-    const files: { path: string; content: string }[] = [];
-    const batchSize = 10;
-
-    for (let i = 0; i < tree.length; i += batchSize) {
-      const batch = tree.slice(i, i + batchSize);
-      const results = await Promise.all(
-        batch.map(async (file) => {
-          try {
-            const content = await fetchFileContent(owner, repo, file.path);
-            return { path: file.path, content };
-          } catch {
-            return null;
-          }
-        })
-      );
-      files.push(
-        ...(results.filter(Boolean) as { path: string; content: string }[])
+    if (files.length === 0) {
+      return Response.json(
+        { error: `No Markdown files found in ${owner}/${repo}` },
+        { status: 404 }
       );
     }
 
-    // Build wiki data
     const wikiData = buildWikiData(owner, repo, files);
 
     return Response.json(wikiData);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ error: message }, { status: 500 });
   }
 }
