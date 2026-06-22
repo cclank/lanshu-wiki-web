@@ -69,16 +69,33 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
   const dragNodeRef = useRef<SNode | null>(null);
   const zoomRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
   const didFocusMountRef = useRef(false);
+  // Only redraw when something actually changed (sim tick, hover, zoom, drag,
+  // resize, selection). Once the layout settles and there's no interaction the
+  // canvas stops repainting instead of burning 60fps on a static image.
+  const needsRedrawRef = useRef(true);
 
   useEffect(() => {
     activeRef.current = activeSlug;
+    needsRedrawRef.current = true;
   }, [activeSlug]);
 
   useEffect(() => {
     hoveredRef.current = hovered;
+    needsRedrawRef.current = true;
   }, [hovered]);
 
-  // Continuous draw loop
+  // draw() reads light/dark colors, so repaint when the theme attribute flips.
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      needsRedrawRef.current = true;
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -268,7 +285,10 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     let running = true;
     function loop() {
       if (!running) return;
-      draw();
+      if (needsRedrawRef.current) {
+        needsRedrawRef.current = false;
+        draw();
+      }
       rafRef.current = requestAnimationFrame(loop);
     }
     loop();
@@ -325,6 +345,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     const sLinks: SLink[] = links.map((l) => ({ source: l.source, target: l.target }));
     nodesRef.current = sNodes;
     linksRef.current = sLinks;
+    needsRedrawRef.current = true;
 
     // Spread physics adapted to node count.
     const nodeCount = sNodes.length;
@@ -348,12 +369,13 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     for (let i = 0; i < 300; i++) sim.tick();
 
     simRef.current = sim;
+    sim.on("tick", () => { needsRedrawRef.current = true; });
     sim.restart();
 
     // Zoom + pan
     const zoom = d3.zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([0.1, 6])
-      .on("zoom", (e) => { transformRef.current = e.transform; });
+      .on("zoom", (e) => { transformRef.current = e.transform; needsRedrawRef.current = true; });
     zoomRef.current = zoom;
 
     const sel = d3.select(canvasEl);
@@ -442,6 +464,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
       n.fx = (e.clientX - rect.left - t.x) / t.k;
       n.fy = (e.clientY - rect.top - t.y) / t.k;
       canvasEl.style.cursor = "grabbing";
+      needsRedrawRef.current = true;
     }
     canvasEl.addEventListener("mousemove", handleDragMove);
 
@@ -474,6 +497,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
       canvasEl.height = h * nextDpr;
       canvasEl.style.width = `${w}px`;
       canvasEl.style.height = `${h}px`;
+      needsRedrawRef.current = true;
     }
     window.addEventListener("resize", onResize);
 
