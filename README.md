@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Tailwind_CSS-4-38bdf8?style=for-the-badge&logo=tailwindcss" alt="Tailwind" />
-  <a href="https://lansu-wiki-web.lank.workers.dev/">
+  <a href="https://lanshu-wiki-web.lank.workers.dev/">
     <img src="https://img.shields.io/badge/Live-Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers" />
   </a>
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
@@ -53,7 +53,7 @@ Open [http://localhost:3000](http://localhost:3000) and enter any GitHub repo UR
 
 ## Deploy to Cloudflare Workers
 
-Production URL: https://lansu-wiki-web.lank.workers.dev/
+Production URL: https://lanshu-wiki-web.lank.workers.dev/
 
 This project uses OpenNext for Cloudflare Workers. Optionally add `GITHUB_TOKEN` as a Worker secret to increase GitHub API rate limits.
 
