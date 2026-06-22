@@ -242,7 +242,8 @@ export default function WikiViewer({ data, loading, error, label, owner, repo }:
 
   if (!data) return null;
 
-  const showSidebar = viewMode === "read" || viewMode === "mindmap";
+  const showSidebar =
+    viewMode === "read" || viewMode === "mindmap" || viewMode === "cosmos";
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">

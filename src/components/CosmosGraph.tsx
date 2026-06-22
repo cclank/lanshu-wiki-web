@@ -49,6 +49,13 @@ function isLightTheme(): boolean {
   return document.documentElement.getAttribute("data-theme") === "light";
 }
 
+// Graph labels are for orientation, not reading. Long titles (e.g. changelog
+// entries that pack a date + commit range + feature list) get clipped so they
+// don't render as screen-wide pills. Hovered/active nodes get a longer clip.
+function truncateLabel(title: string, max: number): string {
+  return title.length > max ? title.slice(0, max - 1) + "…" : title;
+}
+
 export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -60,6 +67,8 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
   const transformRef = useRef(d3.zoomIdentity);
   const rafRef = useRef(0);
   const dragNodeRef = useRef<SNode | null>(null);
+  const zoomRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
+  const didFocusMountRef = useRef(false);
 
   useEffect(() => {
     activeRef.current = activeSlug;
@@ -213,7 +222,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
 
-      const label = n.title;
+      const label = truncateLabel(n.title, isHover || isActive ? 40 : 20);
       const tw = ctx.measureText(label).width;
       const px = 6 / t.k;
       const py = 3 / t.k;
@@ -266,6 +275,37 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     return () => { running = false; cancelAnimationFrame(rafRef.current); };
   }, [draw]);
 
+  // When the active node changes (e.g. picked from the sidebar), pan it to the
+  // centre so "activating" a node is visually obvious — the active ring/glow
+  // alone is easy to miss among many nodes. Skips the first run so the initial
+  // view stays fit-to-all.
+  useEffect(() => {
+    if (!didFocusMountRef.current) {
+      didFocusMountRef.current = true;
+      return;
+    }
+    const canvas = canvasRef.current;
+    const zoom = zoomRef.current;
+    if (!canvas || !zoom || !activeSlug) return;
+    const n = nodesRef.current.find((x) => x.id === activeSlug);
+    if (!n || n.x == null || n.y == null) return;
+
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    const k = Math.max(transformRef.current.k, 0.9);
+    const target = d3.zoomIdentity
+      .translate(W / 2 - k * n.x, H / 2 - k * n.y)
+      .scale(k);
+
+    (d3.select(canvas) as d3.Selection<HTMLCanvasElement, unknown, null, undefined>)
+      .transition()
+      .duration(500)
+      .call(
+        (zoom as unknown as d3.ZoomBehavior<HTMLCanvasElement, unknown>).transform,
+        target
+      );
+  }, [activeSlug]);
+
   // Simulation setup
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -314,6 +354,7 @@ export default function ObsidianGraph({ nodes, links, activeSlug, onSelect }: Pr
     const zoom = d3.zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([0.1, 6])
       .on("zoom", (e) => { transformRef.current = e.transform; });
+    zoomRef.current = zoom;
 
     const sel = d3.select(canvasEl);
     (sel as d3.Selection<HTMLCanvasElement, unknown, null, undefined>).call(
